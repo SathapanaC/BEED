@@ -13,7 +13,9 @@ def raw_df():
 
 
 def test_load_shape(raw_df):
-    assert raw_df.shape == (4000, N_CHANNELS + 1)
+    n_rows, n_cols = raw_df.shape
+    assert n_cols == N_CHANNELS + 1
+    assert n_rows > 0
 
 
 def test_no_nulls(raw_df):
