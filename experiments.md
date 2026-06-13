@@ -69,10 +69,58 @@ Correlation matrices show that in Focal class, ipsilateral and contralateral cha
 
 | ID | Experiment | Priority |
 |----|------------|----------|
-| EXP-002 | Feature engineering: FFT + UMAP, validate 19-feature matrix shape and variance | High |
+| EXP-002 | Feature engineering: FFT + UMAP, validate 19-feature matrix shape and variance | ~~High~~ **Done** |
 | EXP-003 | Baseline classifiers (Logistic Regression, Random Forest) on raw 16 features | Medium |
 | EXP-004 | Baseline classifiers on FFT+UMAP 19-feature matrix | High |
 | EXP-005 | SeqBoostNet implementation: LSTM + XGB + GB → AdaBoost | High |
 | EXP-006 | Binary classification cases A1–A6 as defined in the paper | Medium |
+
+---
+
+## EXP-002 — Feature Engineering
+
+**Date:** 2026-06-14
+**Notebook:** `notebooks/02_features.ipynb`
+**Figures:** `reports/figures/07–10_*.png`
+**Artifacts:** `data/processed/{train,val,test}_features.parquet`, `scaler.pkl`, `umap_reducer.pkl`
+
+### Setup
+
+| Parameter | Value |
+|-----------|-------|
+| Pipeline | StandardScaler (per-channel) → FFT (axis=1, 16 features) + UMAP (3D) |
+| Output shape | (n_samples, 19) — confirmed for train / val / test |
+| UMAP fit | Train only; val/test transformed with fitted reducer |
+| Scaler fit | Train only; val/test transformed with fitted scaler |
+
+> **Bug fixed:** Original `features.py` used `rfft(..., axis=0)` — FFT across samples, wrong output shape.
+> Corrected to `fft(..., axis=1)` — FFT across 16 channels per row, preserving (n, 16) shape.
+
+### Findings
+
+#### F6 — Feature matrix shape validated
+All three splits produce (n, 19) matrices: 16 FFT + 3 UMAP. DC term (k=0) of each FFT row is real and non-negative, confirming correct axis usage.
+
+#### F7 — Variance is concentrated in 3 frontal/temporal FFT features + UMAP-1
+Highest-variance features: `Fp1_fft` (~65), `T6_fft` (~49), `Fp2_fft` (~49), then `umap_1` (~15). The 6 parietal/occipital channels (`P3`, `P4`, `O1`, `O2`, `F7`, `F8` FFT) carry near-zero variance — they contribute little information after scaling.
+
+#### F8 — UMAP-1 is the single most class-discriminative feature by a large margin
+ANOVA F-scores: `umap_1` F≈17,500, next best `T5_fft`/`F3_fft`/`Fp2_fft`/`T6_fft` at F≈2,800. `umap_3` is the weakest (F≈25). All 19 features are statistically significant (p < 0.05).
+
+Mean F-score — FFT features: ~870 · UMAP features: ~6,100 (UMAP carries ~7× more discriminative signal on average).
+
+#### F9 — UMAP embedding cleanly isolates Healthy; seizure classes heavily overlap
+In all three 2D projections (umap_1 vs umap_2/3, umap_2 vs umap_3), the Healthy class forms a tight, well-separated cluster. The three seizure classes (Focal, Generalized, Seizure Events) overlap substantially — consistent with EXP-001 F3 (similar PSD shapes).
+
+> **Implication:** A model that learns only on UMAP features will classify Healthy vs. seizure easily but will struggle with inter-seizure discrimination. The FFT features are likely needed to resolve Focal vs. Generalized (A1 case).
+
+#### F10 — FFT distributions are right-skewed; Healthy has heavier tail
+All FFT features are bounded below by zero (magnitudes). Healthy class consistently shows a heavier right tail across all channels. Seizure classes cluster near zero with occasional high-magnitude outliers.
+
+### Open Questions
+
+- [ ] The spatial FFT (across 16 channels per row) treats simultaneous electrode readings as a "signal" — is this the same transform the paper intends, or do they apply temporal FFT across a session window?
+- [ ] 6 low-variance FFT features may be worth dropping before modelling — test with and without.
+- [ ] UMAP is non-deterministic beyond `random_state`; should verify embedding stability across seeds.
 
 ---
