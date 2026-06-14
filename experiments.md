@@ -72,7 +72,7 @@ Correlation matrices show that in Focal class, ipsilateral and contralateral cha
 | EXP-002 | Feature engineering: FFT + UMAP, validate 19-feature matrix shape and variance | ~~High~~ **Done** |
 | EXP-003 | Baseline classifiers (Logistic Regression, Random Forest) on raw 16 features | ~~Medium~~ **Done** |
 | EXP-004 | Baseline classifiers on FFT+UMAP 19-feature matrix | ~~High~~ **Done** |
-| EXP-005 | SeqBoostNet implementation: LSTM + XGB + GB → AdaBoost | High |
+| EXP-005 | SeqBoostNet implementation: LSTM + XGB + GB → AdaBoost | ~~High~~ **Done** |
 | EXP-006 | Binary classification cases A1–A6 as defined in the paper | Medium |
 
 ---
@@ -202,5 +202,65 @@ On the FFT+UMAP features, `umap_1` is the single most important RF feature by a 
 
 - [ ] Can LR reach RF-raw performance (~95%) with more regularisation tuning or polynomial features on top of FFT+UMAP?
 - [ ] The RF-on-raw result (95.4%) raises the question of whether UMAP is net-beneficial for the full SeqBoostNet ensemble — the LSTM and boosting stages may behave differently from RF.
+
+---
+
+## EXP-005 — SeqBoostNet (LSTM + XGBoost + GradientBoosting → AdaBoost)
+
+**Date:** 2026-06-14
+**Notebook:** `notebooks/05_seqboostnet.ipynb`
+**Figures:** `reports/figures/19–20_*.png`
+**Artifacts:** `data/processed/exp005_seqboostnet_results.csv`
+
+### Setup
+
+| Parameter | Value |
+|-----------|-------|
+| Feature set | 19-feature FFT+UMAP matrix (from EXP-002) |
+| Stacking | 3-fold stratified OOF; meta-features = stacked class probabilities (12 cols: 4 classes × 3 models) |
+| LSTM | 128 units, ReLU, Dropout 0.5, Softmax output, Adam, Sparse CCE; max 100 epochs, EarlyStopping(patience=15) |
+| XGBoost | 300 estimators, max_depth=6, lr=0.05, multi:softmax |
+| GradientBoosting | 100 estimators, lr=0.1, max_depth=3 |
+| AdaBoost (meta) | 50 estimators, lr=1.0, SAMME |
+| Split | Train 5,600 / Val 800 / Test 1,600 |
+
+### Results (test set)
+
+| Model | Accuracy | Macro-F1 |
+|-------|----------|----------|
+| LSTM (base, standalone) | — | — |
+| XGBoost (base, standalone) | — | — |
+| GradientBoosting (base, standalone) | — | — |
+| **SeqBoostNet (ensemble)** | **0.8438** | **0.8453** |
+
+*Base model standalone results recorded in notebook cell 10.*
+
+### Full progression (test macro-F1)
+
+| Model | EXP-003 (raw 16) | EXP-004 (FFT+UMAP 19) | EXP-005 |
+|-------|-----------------|----------------------|---------|
+| Logistic Regression | 0.468 | 0.700 | — |
+| Random Forest | 0.954 | 0.885 | — |
+| SeqBoostNet | — | — | 0.845 |
+
+### Findings
+
+#### F17 — SeqBoostNet (0.845 macro-F1) sits between the two RF baselines
+The full paper ensemble outperforms RF-on-FFT+UMAP (0.885 → 0.845 is actually lower — see F18), but does not beat the strongest baseline: RF-on-raw-16 at 0.954. On the 4-class multiclass problem, SeqBoostNet is not the best-performing model in this experiment series.
+
+#### F18 — SeqBoostNet underperforms RF on both feature sets in 4-class setting
+SeqBoostNet achieves 0.845 macro-F1 vs. 0.885 for RF-on-FFT+UMAP and 0.954 for RF-on-raw. The stacking overhead (OOF meta-features → AdaBoost) does not compensate for the information loss relative to a well-tuned RF. The LSTM component, treating 19 tabular features as 19 sequential timesteps, is likely a weak contributor on this dataset — the temporal interpretation of cross-channel FFT/UMAP values is not natural.
+
+#### F19 — Paper comparison requires binary cases (EXP-006)
+The paper reports 96.71% average accuracy across six binary classification cases (A1–A6), not 4-class multiclass. A direct comparison is not possible from this experiment. EXP-006 will rerun SeqBoostNet on each binary case to produce a fair comparison with the paper's reported numbers. The hardest binary case (A1: Focal vs. Generalized, 95.91% in the paper) will be the key test.
+
+#### F20 — AdaBoost on 12-column OOF probability meta-features is stable
+The 3-fold OOF stacking produces well-calibrated meta-features: no fold collapses (all folds produce non-trivial predictions for all 4 classes). AdaBoost training on (5600, 12) OOF features converges without error. Val ≈ Test (0.850 vs. 0.845), suggesting no overfitting at the meta-model level.
+
+### Open Questions
+
+- [ ] Do the LSTM's individual OOF predictions add meaningful signal, or does XGBoost dominate the meta-feature space? (Ablation: AdaBoost on XGB+GB only vs. all three.)
+- [ ] Would treating the 16 raw channels as 16 LSTM timesteps (instead of the 19 FFT+UMAP features) improve the LSTM contribution?
+- [ ] Will SeqBoostNet match the paper's reported per-case binary accuracy in EXP-006, where the 4-class problem is decomposed into easier 2-class problems?
 
 ---
