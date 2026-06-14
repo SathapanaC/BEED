@@ -70,8 +70,8 @@ Correlation matrices show that in Focal class, ipsilateral and contralateral cha
 | ID | Experiment | Priority |
 |----|------------|----------|
 | EXP-002 | Feature engineering: FFT + UMAP, validate 19-feature matrix shape and variance | ~~High~~ **Done** |
-| EXP-003 | Baseline classifiers (Logistic Regression, Random Forest) on raw 16 features | Medium |
-| EXP-004 | Baseline classifiers on FFT+UMAP 19-feature matrix | High |
+| EXP-003 | Baseline classifiers (Logistic Regression, Random Forest) on raw 16 features | ~~Medium~~ **Done** |
+| EXP-004 | Baseline classifiers on FFT+UMAP 19-feature matrix | ~~High~~ **Done** |
 | EXP-005 | SeqBoostNet implementation: LSTM + XGB + GB → AdaBoost | High |
 | EXP-006 | Binary classification cases A1–A6 as defined in the paper | Medium |
 
@@ -122,5 +122,85 @@ All FFT features are bounded below by zero (magnitudes). Healthy class consisten
 - [ ] The spatial FFT (across 16 channels per row) treats simultaneous electrode readings as a "signal" — is this the same transform the paper intends, or do they apply temporal FFT across a session window?
 - [ ] 6 low-variance FFT features may be worth dropping before modelling — test with and without.
 - [ ] UMAP is non-deterministic beyond `random_state`; should verify embedding stability across seeds.
+
+---
+
+## EXP-003 — Baseline Classifiers (Raw 16 Features)
+
+**Date:** 2026-06-14
+**Notebook:** `notebooks/03_baselines.ipynb`
+**Figures:** `reports/figures/11–14_*.png`
+**Artifacts:** `data/processed/exp003_baseline_results.csv`
+
+### Setup
+
+| Parameter | Value |
+|-----------|-------|
+| Feature set | Raw 16 EEG channels, StandardScaler (fit on train only) |
+| Models | Logistic Regression (lbfgs, C=1, max_iter=1000), Random Forest (200 trees, min_samples_leaf=2) |
+| Split | Train 5,600 / Val 800 / Test 1,600 |
+
+### Results (test set)
+
+| Model | Accuracy | Macro-F1 |
+|-------|----------|----------|
+| Logistic Regression | 0.461 | 0.468 |
+| **Random Forest** | **0.954** | **0.954** |
+
+### Findings
+
+#### F11 — Raw channels are highly non-linear; LR fails badly
+Logistic Regression reaches only 46% test accuracy on raw channels. Per-class precision/recall is uneven, with Focal and Generalized heavily confused. The 4-class boundaries in the raw 16D space are not linearly separable.
+
+#### F12 — Random Forest achieves 95.4% test accuracy on raw features alone
+Without any feature engineering, RF already reaches a very high performance floor. Val ≈ Test (both ~95%), so there is no overfitting. This sets a strong bar that the full SeqBoostNet pipeline must exceed.
+
+#### F13 — Frontal channels dominate RF feature importance
+RF importance rankings: `Fp1` and `Fp2` (frontal-polar) are the two most important channels by a clear margin, followed by `F3`, `T5`, and `T6`. This is consistent with EXP-001 F2/F3: the Healthy class has anomalously high amplitude in frontal channels, and the RF exploits this directly via axis-aligned splits.
+
+### Open Questions
+
+- [ ] Does RF's high raw performance hold under cross-session or cross-subject splits, or is it exploiting within-session leakage (rows ordered by class)?
+- [ ] Is the raw-channel RF already near the paper's reported accuracy — if so, does feature engineering add value for tree-based models?
+
+---
+
+## EXP-004 — Classifiers on 19-Feature FFT+UMAP Matrix
+
+**Date:** 2026-06-14
+**Notebook:** `notebooks/04_classifiers_fft_umap.ipynb`
+**Figures:** `reports/figures/15–18_*.png`
+**Artifacts:** `data/processed/exp004_results.csv`
+
+### Setup
+
+| Parameter | Value |
+|-----------|-------|
+| Feature set | StandardScaler → FFT (16) + UMAP (3) = 19 features (pre-built in EXP-002) |
+| Models | Same LR and RF configs as EXP-003 |
+| Split | Train 5,600 / Val 800 / Test 1,600 |
+
+### Results (test set)
+
+| Model | Accuracy | Macro-F1 | Δ vs EXP-003 |
+|-------|----------|----------|--------------|
+| Logistic Regression | 0.702 | 0.700 | **+0.232** |
+| Random Forest | 0.885 | 0.885 | **−0.065** |
+
+### Findings
+
+#### F14 — FFT+UMAP linearises the problem for LR (+23 pp macro-F1)
+The feature engineering pipeline transforms the raw channels into a space where a linear classifier jumps from 0.47 to 0.70 macro-F1. UMAP-1 (the dominant discriminative feature from EXP-002 F8) is likely driving most of this gain — it effectively separates Healthy from all seizure classes, enabling LR to draw a useful boundary.
+
+#### F15 — FFT compression hurts Random Forest (−6.5 pp macro-F1)
+RF drops from 95.4% to 88.5% when switching from raw channels to FFT+UMAP features. The spatial FFT (across 16 simultaneous channel readings per row) compresses information that RF can exploit directly via axis-aligned splits. The FFT magnitude discards phase and reduces the 16D raw space to spectral amplitudes, losing some discriminative signal for tree-based splits. UMAP's 3D projection further compresses the 16 channels into dimensions optimised for global structure, not for local tree boundaries.
+
+#### F16 — UMAP features dominate RF importance on the 19-feature matrix
+On the FFT+UMAP features, `umap_1` is the single most important RF feature by a large margin, followed by `umap_2` and then the frontal FFT channels (`Fp1_fft`, `Fp2_fft`). This is consistent with EXP-002 F8 (UMAP-1 ANOVA F≈17,500).
+
+### Open Questions
+
+- [ ] Can LR reach RF-raw performance (~95%) with more regularisation tuning or polynomial features on top of FFT+UMAP?
+- [ ] The RF-on-raw result (95.4%) raises the question of whether UMAP is net-beneficial for the full SeqBoostNet ensemble — the LSTM and boosting stages may behave differently from RF.
 
 ---
