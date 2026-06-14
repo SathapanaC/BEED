@@ -72,6 +72,7 @@ Raw EEG (8,000 × 16)
 | EXP-004 | `notebooks/04_classifiers_fft_umap.ipynb` | LR + RF on 19-feature FFT+UMAP matrix |
 | EXP-005 | `notebooks/05_seqboostnet.ipynb` | SeqBoostNet 4-class implementation |
 | EXP-006 | `notebooks/06_binary_cases.ipynb` | SeqBoostNet on binary cases A1–A6 |
+| EXP-007 | `notebooks/07_threshold_tuning.ipynb` | Threshold tuning on A1, A4, A5 — no gain; 0.5 is near-optimal |
 
 See [`experiments.md`](experiments.md) for detailed findings, open questions, and the lab notebook.
 
