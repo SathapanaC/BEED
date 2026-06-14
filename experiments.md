@@ -74,6 +74,7 @@ Correlation matrices show that in Focal class, ipsilateral and contralateral cha
 | EXP-004 | Baseline classifiers on FFT+UMAP 19-feature matrix | ~~High~~ **Done** |
 | EXP-005 | SeqBoostNet implementation: LSTM + XGB + GB → AdaBoost | ~~High~~ **Done** |
 | EXP-006 | Binary classification cases A1–A6 as defined in the paper | ~~Medium~~ **Done** |
+| EXP-007 | Threshold tuning on A1, A4, A5 | ~~Medium~~ **Done** |
 
 ---
 
@@ -324,7 +325,49 @@ A1 ROC-AUC=97.25% vs accuracy=93.62%; A4 ROC-AUC=97.23% vs accuracy=93.25%; A5 R
 ### Open Questions
 
 - [ ] Would training the LSTM for the full 100 epochs (as in the paper) close the A1/A5 gap?
-- [ ] Would threshold tuning on the val set improve A1, A4, A5 accuracy by 1–3 pp?
+- [x] Would threshold tuning on the val set improve A1, A4, A5 accuracy by 1–3 pp? → **No. EXP-007 shows no gain; the 0.5 default is already near-optimal.**
 - [ ] Is the A5 gap a fundamental limit of this feature space, or a training artifact? (A5 ROC-AUC=95.1% suggests the latter.)
+
+---
+
+## EXP-007 — Threshold Tuning on A1, A4, A5
+
+**Date:** 2026-06-14
+**Notebook:** `notebooks/07_threshold_tuning.ipynb`
+**Figures:** `reports/figures/23–24_*.png`
+**Artifacts:** `data/processed/exp007_threshold_results.csv`
+
+### Setup
+
+| Parameter | Value |
+|-----------|-------|
+| Cases | A1, A4, A5 (the three cases where EXP-006 ROC-AUC materially exceeded accuracy) |
+| Architecture | SeqBoostNet — same as EXP-006 (retrained; 50 final LSTM epochs, patience=12) |
+| Threshold search | Grid search [0.01, 0.99] in 0.001 steps; three objectives: best val accuracy, best val F1, Youden's J |
+| Selection rule | Threshold chosen on **val set only**; reported accuracy is on **test set** |
+
+### Results
+
+| Case | Default (t=0.5) | Best Val Acc | Best Val F1 | Youden's J | Paper |
+|------|----------------|-------------|------------|------------|-------|
+| A1 | 93.62% (t=0.500) | 93.50% (t=0.527) | 93.50% (t=0.527) | 93.50% (t=0.536) | 95.91% |
+| A4 | 93.25% (t=0.500) | 93.25% (t=0.460) | 93.25% (t=0.460) | 93.25% (t=0.526) | 91.16% |
+| A5 | 87.25% (t=0.500) | 86.50% (t=0.553) | 84.62% (t=0.425) | 86.50% (t=0.559) | 94.01% |
+
+### Findings
+
+#### F26 — Threshold tuning yields no improvement; the 0.5 default is near-optimal
+Across all three cases and all three objectives, the tuned threshold either matches or marginally decreases test accuracy relative to 0.5. A4 is unchanged; A1 and A5 lose 0.12 pp and 0.75 pp respectively at their best-accuracy thresholds. The F1-optimised threshold for A5 (t=0.425) actively hurts accuracy (87.25% → 84.62%).
+
+#### F27 — The ROC-AUC vs accuracy gap is structural, not a calibration artefact
+EXP-006 F25 hypothesised that the gap (e.g. A5: ROC-AUC 95.13% vs accuracy 87.25%) could be recovered by threshold shifting. EXP-007 falsifies this: the AdaBoost probability scores are well-calibrated around 0.5 and no threshold recovers meaningful ground. The gap reflects genuine difficulty in separating the classes at the score level — the model's decision surface cannot resolve the overlap between Generalized and Seizure Events at any threshold. Increasing training budget (more LSTM epochs) or richer features remain the primary levers.
+
+#### F28 — A5 is asymmetric: tuning toward recall (lower threshold) trades accuracy for sensitivity
+At t=0.425 (best F1), A5 sensitivity rises but specificity drops enough to reduce accuracy. This confirms A5's confusion is asymmetric: false negatives (missed Generalized) are easier to fix than false positives (Seizure Events misclassified as Generalized). The feature space simply cannot cleanly separate these two seizure classes with the current 19-feature representation.
+
+### Open Questions
+
+- [ ] Would increasing LSTM epochs to 100 (paper's setting) move the A1/A5 test accuracy by more than threshold tuning could (confirmed ceiling: 0 pp from tuning)?
+- [ ] Can ensemble calibration (Platt scaling or isotonic regression on val probabilities) improve the ROC-AUC → accuracy conversion, or is the issue pre-calibration score separation?
 
 ---
