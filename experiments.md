@@ -73,7 +73,7 @@ Correlation matrices show that in Focal class, ipsilateral and contralateral cha
 | EXP-003 | Baseline classifiers (Logistic Regression, Random Forest) on raw 16 features | ~~Medium~~ **Done** |
 | EXP-004 | Baseline classifiers on FFT+UMAP 19-feature matrix | ~~High~~ **Done** |
 | EXP-005 | SeqBoostNet implementation: LSTM + XGB + GB → AdaBoost | ~~High~~ **Done** |
-| EXP-006 | Binary classification cases A1–A6 as defined in the paper | Medium |
+| EXP-006 | Binary classification cases A1–A6 as defined in the paper | ~~Medium~~ **Done** |
 
 ---
 
@@ -261,6 +261,70 @@ The 3-fold OOF stacking produces well-calibrated meta-features: no fold collapse
 
 - [ ] Do the LSTM's individual OOF predictions add meaningful signal, or does XGBoost dominate the meta-feature space? (Ablation: AdaBoost on XGB+GB only vs. all three.)
 - [ ] Would treating the 16 raw channels as 16 LSTM timesteps (instead of the 19 FFT+UMAP features) improve the LSTM contribution?
-- [ ] Will SeqBoostNet match the paper's reported per-case binary accuracy in EXP-006, where the 4-class problem is decomposed into easier 2-class problems?
+- [x] Will SeqBoostNet match the paper's reported per-case binary accuracy in EXP-006, where the 4-class problem is decomposed into easier 2-class problems? → **Broadly yes (avg 95.56% vs 96.71% paper), within 1–2 pp on most cases.**
+
+---
+
+## EXP-006 — Binary Classification Cases A1–A6
+
+**Date:** 2026-06-14
+**Notebook:** `notebooks/06_binary_cases.ipynb`
+**Figures:** `reports/figures/21–22_*.png`
+**Artifacts:** `data/processed/exp006_binary_results.csv`
+
+### Setup
+
+| Parameter | Value |
+|-----------|-------|
+| Architecture | SeqBoostNet — same as EXP-005 |
+| Feature pipeline | Per-case StandardScaler+FFT+UMAP (19 features); scaler and UMAP refit on each case's train split |
+| Stacking | 3-fold OOF; LSTM 10 CV epochs / 30 final epochs (EarlyStopping patience=8) |
+| Split | Per-case stratified 70/10/20 (~2800 train / 400 val / 800 test per case) |
+
+### Results vs paper (test accuracy %)
+
+| Case | Title | Ours | Paper | Δ (pp) |
+|------|-------|------|-------|--------|
+| A1 | Generalized vs Focal | 93.62 | 95.91 | −2.29 |
+| A2 | Generalized vs Healthy | 99.62 | 99.66 | −0.04 |
+| A3 | Focal vs Healthy | 99.88 | 99.83 | +0.05 |
+| A4 | Focal vs Seizure Events | 93.25 | 91.16 | +2.09 |
+| A5 | Generalized vs Seizure Events | 87.25 | 94.01 | −6.76 |
+| A6 | Seizure Events vs Healthy | 99.75 | 99.66 | +0.09 |
+| **Avg** | | **95.56** | **96.71** | **−1.15** |
+
+### Full metric table (test set)
+
+| Case | Accuracy | Precision | Recall | F1 | F2 | Kappa | MCC | ROC-AUC | Sensitivity | Specificity | Log Loss |
+|------|----------|-----------|--------|----|----|-------|-----|---------|-------------|-------------|----------|
+| A1 | 93.62 | 92.05 | 95.50 | 93.74 | 94.79 | 87.25 | 87.31 | 97.25 | 95.50 | 91.75 | 0.413 |
+| A2 | 99.62 | 99.26 | 100.0 | 99.63 | 99.85 | 99.25 | 99.25 | 99.62 | 100.0 | 99.25 | 0.344 |
+| A3 | 99.88 | 99.75 | 100.0 | 99.88 | 99.95 | 99.75 | 99.75 | 100.0 | 100.0 | 99.75 | 0.309 |
+| A4 | 93.25 | 92.82 | 93.75 | 93.28 | 93.56 | 86.50 | 86.50 | 97.23 | 93.75 | 92.75 | 0.427 |
+| A5 | 87.25 | 84.02 | 92.00 | 87.83 | 90.28 | 74.50 | 74.84 | 95.13 | 92.00 | 82.50 | 0.465 |
+| A6 | 99.75 | 99.50 | 100.0 | 99.75 | 99.90 | 99.50 | 99.50 | 99.99 | 100.0 | 99.50 | 0.312 |
+
+### Findings
+
+#### F21 — Average accuracy (95.56%) closely reproduces the paper (96.71%), within 1.15 pp
+Four of six cases land within 2.3 pp of the paper. A2, A3, A6 (all involving Healthy) exceed 99.6% — matching the paper almost exactly. A4 (Focal vs Seizure Events) actually outperforms the paper by +2.1 pp. The overall reproduction is successful.
+
+#### F22 — A5 (Generalized vs Seizure Events) is the largest gap: 87.25% vs 94.01% (−6.76 pp)
+A5 is the only case where the gap is material. A5 and A1 are the hardest cases (within-seizure-type discrimination), consistent with EXP-001 F3 (Focal and Generalized share very similar PSDs). The gap on A5 likely reflects a combination of: (a) fewer LSTM training epochs in this experiment vs the paper's 100 epochs; (b) UMAP instability on the 50/50 Generalized/Seizure Events subset where class structure is least separable. ROC-AUC for A5 is still 95.13%, indicating the ranker is good but the decision boundary is suboptimal.
+
+#### F23 — A1 gap (−2.29 pp) is likely due to reduced LSTM training
+A1 (Generalized vs Focal) is the canonical hard case; the paper reports 95.91%, we achieve 93.62%. Given that F21 shows the architecture is broadly correct, the shortfall is likely a training budget issue (10 CV epochs + 30 final vs paper's 100 epochs). The ROC-AUC of 97.25% shows the model has strong ranking ability — calibration and decision boundary placement would improve with more training.
+
+#### F24 — Healthy-involved cases (A2, A3, A6) are trivially solved by all methods
+A2/A3/A6 reach >99.6% accuracy, sensitivity=100%, and near-perfect MCC. These results are consistent across EXP-003 (RF-on-raw), EXP-004, EXP-005, and EXP-006: the Healthy class is cleanly separable from all seizure classes by amplitude alone (EXP-001 F2). These cases do not stress-test the model.
+
+#### F25 — ROC-AUC exceeds accuracy in all hard cases, revealing calibration as the bottleneck
+A1 ROC-AUC=97.25% vs accuracy=93.62%; A4 ROC-AUC=97.23% vs accuracy=93.25%; A5 ROC-AUC=95.13% vs accuracy=87.25%. The ensemble ranks samples well but the AdaBoost threshold is not optimally calibrated. Threshold tuning on the val set (instead of default 0.5) would likely recover 1–3 pp on A1, A4, A5.
+
+### Open Questions
+
+- [ ] Would training the LSTM for the full 100 epochs (as in the paper) close the A1/A5 gap?
+- [ ] Would threshold tuning on the val set improve A1, A4, A5 accuracy by 1–3 pp?
+- [ ] Is the A5 gap a fundamental limit of this feature space, or a training artifact? (A5 ROC-AUC=95.1% suggests the latter.)
 
 ---
